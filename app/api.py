@@ -8,6 +8,7 @@ import json
 import uuid
 import os
 from collections import defaultdict
+from itertools import combinations
 
 app = Flask(__name__)
 CORS(app)  # Add this line to enable CORS for all routes
@@ -31,7 +32,7 @@ def get_db_connection():
     )
 
 # Game logic
-CARDS = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A']
+CARDS = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'Jack', 'Queen', 'King', 'Ace']
 SUITS = ['Hearts', 'Diamonds', 'Clubs', 'Spades']
 
 def deal_cards():
@@ -242,7 +243,6 @@ def handle_connect():
     player_id = request.args.get('player_id')
     room_id = request.args.get('room_id')
     join_room(room_id)
-    join_room(player_id)  # Join a room specific to the player
     
     # Fetch all players in the room
     conn = get_db_connection()
@@ -271,10 +271,16 @@ def handle_disconnect():
 
 @socketio.on('ask_card')
 def handle_ask_card(data):
+    print("ask_card called")
     asking_player_id = data['asking_player_id']
     asked_player_id = data['asked_player_id']
     card = data['card']
     room_id = data['room_id']
+
+    print("asking_player_id", asking_player_id)
+    print("asked_player_id", asked_player_id)
+    print("card", card)
+    print("room_id", room_id)
 
     conn = get_db_connection()
     cur = conn.cursor(cursor_factory=RealDictCursor)
@@ -284,6 +290,7 @@ def handle_ask_card(data):
     room = cur.fetchone()
     
     if room['current_turn'] != asking_player_id:
+        print("not your turn")
         emit('error', {'message': 'Not your turn'}, room=asking_player_id)
         cur.close()
         conn.close()
@@ -315,7 +322,9 @@ def handle_ask_card(data):
         return
     
     card_transferred = False
+    print(asked_player_cards)
     if card in asked_player_cards:
+        print("card in asked_player_cards")
         asked_player_cards.remove(card)
         asking_player_cards.append(card)
         card_transferred = True
@@ -324,10 +333,21 @@ def handle_ask_card(data):
         cur.execute("UPDATE players SET cards = %s WHERE id = %s", (json.dumps(asking_player_cards), asking_player_id))
         cur.execute("UPDATE players SET cards = %s WHERE id = %s", (json.dumps(asked_player_cards), asked_player_id))
         
-        emit('card_transferred', {
+        socketio.emit('card_transferred', {
             'from_player': asked_player_id,
             'to_player': asking_player_id,
             'card': card
+        }, room=room_id)
+        
+        # Emit updated hands to both players
+        socketio.emit('hand_updated', {
+            'player_id': asking_player_id,
+            'hand': asking_player_cards
+        }, room=room_id)
+        print(f"Emitting hand_updated to asked_player_id {asked_player_id}")
+        socketio.emit('hand_updated', {
+            'player_id': asked_player_id,
+            'hand': asked_player_cards
         }, room=room_id)
     
     if not card_transferred:
@@ -341,8 +361,6 @@ def handle_ask_card(data):
     conn.close()
     
     emit('turn_changed', {'current_turn': room['current_turn']}, room=room_id)
-    emit('hand_updated', {'hand': asking_player_cards}, room=asking_player_id)
-    emit('hand_updated', {'hand': asked_player_cards}, room=asked_player_id)
 
 @socketio.on('update_hand')
 def handle_update_hand(data):
@@ -378,6 +396,78 @@ def handle_turn_changed(data):
     conn.close()
     
     emit('turn_changed', {'current_turn': new_turn}, room=room_id)
+
+def validate_set_declaration(set_cards, player_cards):
+    return all(card in player_cards for card in set_cards)
+
+@socketio.on('declare_set')
+def handle_declare_set(data):
+    declaring_player_id = data['declaring_player_id']
+    room_id = data['room_id']
+    set_declaration = data['set_declaration']
+    
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+    
+    # Get room and current turn
+    cur.execute("SELECT current_turn, scores FROM rooms WHERE id = %s", (room_id,))
+    room = cur.fetchone()
+    
+    if room['current_turn'] != declaring_player_id:
+        emit('error', {'message': 'Not your turn'}, room=declaring_player_id)
+        cur.close()
+        conn.close()
+        return
+    
+    # Get all players in the room
+    cur.execute("SELECT id, team, cards FROM players WHERE room_id = %s", (room_id,))
+    players = cur.fetchall()
+    
+    declaring_player = next(p for p in players if str(p['id']) == declaring_player_id)
+    declaring_team = declaring_player['team']
+    
+    # Validate the declaration
+    is_valid = True
+    for player_id, cards in set_declaration.items():
+        player = next(p for p in players if str(p['id']) == player_id)
+        if player['team'] != declaring_team:
+            is_valid = False
+            break
+        if not validate_set_declaration(cards, json.loads(player['cards'])):
+            is_valid = False
+            break
+    
+    if is_valid:
+        # Update scores
+        scores = room['scores']
+        scores[str(declaring_team)] = scores.get(str(declaring_team), 0) + 1
+        cur.execute("UPDATE rooms SET scores = %s WHERE id = %s", (Json(scores), room_id))
+        
+        # Remove declared cards from players' hands
+        for player_id, cards in set_declaration.items():
+            player = next(p for p in players if str(p['id']) == player_id)
+            player_cards = json.loads(player['cards'])
+            player_cards = [card for card in player_cards if card not in cards]
+            cur.execute("UPDATE players SET cards = %s WHERE id = %s", (json.dumps(player_cards), player_id))
+        
+        conn.commit()
+        
+        emit('set_declared', {
+            'declaring_player': declaring_player_id,
+            'set_declaration': set_declaration,
+            'scores': scores
+        }, room=room_id)
+        
+        # Update hands for all players involved
+        for player_id in set_declaration.keys():
+            cur.execute("SELECT cards FROM players WHERE id = %s", (player_id,))
+            updated_hand = cur.fetchone()['cards']
+            emit('hand_updated', {'hand': json.loads(updated_hand)}, room=player_id)
+    else:
+        emit('error', {'message': 'Invalid set declaration'}, room=declaring_player_id)
+    
+    cur.close()
+    conn.close()
 
 if __name__ == '__main__':
     socketio.run(app, debug=True)
