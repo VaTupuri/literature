@@ -5,8 +5,10 @@ let socket: Socket | null = null;
 
 export const connectToSocket = (roomId: string, playerId: string) => {
   if (!socket) {
+    console.log("Connecting with playerId:", playerId)
     socket = io(API_BASE_URL, {
-      query: { room_id: roomId, player_id: playerId }
+      query: { room_id: roomId, player_id: playerId },
+      transports: ['websocket']
     });
 
     socket.on('connect', () => {
@@ -18,10 +20,13 @@ export const connectToSocket = (roomId: string, playerId: string) => {
       // You can dispatch an action or update state here to reflect the new player list
     });
 
-    socket.on('hand_updated', (data) => {
-      console.log('Hand updated:', data.hand);
-      // You can dispatch an action or update state here to reflect the new hand
-    });
+    // socket.on('hand_updated', (data) => {
+    //   console.log('Hand updated event received:', data);
+    //   if (String(data.player_id) === playerId) {
+    //     console.log('Hand updated for this player:', data.hand);
+    //     // onHandUpdated(data.hand);
+    //   }
+    // });
 
     socket.on('game_state', (data) => {
       console.log('Game state received:', data);
@@ -35,7 +40,8 @@ export const connectToSocket = (roomId: string, playerId: string) => {
 
     socket.on('card_transferred', (data) => {
       console.log('Card transferred:', data);
-      // You can dispatch an action or update state here to reflect the card transfer
+      // The hand will be updated via the 'hand_updated' event
+      // The toast notification will be handled in the component
     });
 
     socket.on('error', (data) => {
@@ -58,6 +64,16 @@ export const disconnectSocket = () => {
 
 export const askCard = (askingPlayerId: string, askedPlayerId: string, card: string, roomId: string) => {
   if (socket) {
+    console.log("askingPlayerId", askingPlayerId)
+    console.log("askedPlayerId", askedPlayerId)
+    console.log("card", card)
+    console.log("roomId", roomId)
     socket.emit('ask_card', { asking_player_id: askingPlayerId, asked_player_id: askedPlayerId, card, room_id: roomId });
+  }
+};
+
+export const declareSet = (declaringPlayerId: string, roomId: string, setDeclaration: Record<string, string[]>) => {
+  if (socket) {
+    socket.emit('declare_set', { declaring_player_id: declaringPlayerId, room_id: roomId, set_declaration: setDeclaration });
   }
 };
