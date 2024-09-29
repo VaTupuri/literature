@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Image from 'next/image'
-import { getSocket, connectToSocket, disconnectSocket, askCard as askCardSocket, declareSet } from '@/app/utils/socketio'
+import {connectToSocket, disconnectSocket, askCard as askCardSocket, declareSet } from '@/app/utils/socketio'
 import { getPlayerHand, getRoomPlayers, getCurrentTurn, getPlayerTeam } from '@/app/utils/api'
 import { Player } from '@/app/types'
 import { Button } from "@/components/ui/button"
@@ -13,7 +13,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/components/ui/use-toast"
 import { ClipboardCopy } from 'lucide-react'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import Confetti from 'react-confetti'
 
 const getCardImagePath = (card: string): string => {
@@ -55,13 +55,13 @@ export default function Component({ params }: { params: { roomId: string } }) {
   const [selectedValue, setSelectedValue] = useState<string>('')
   const [error, setError] = useState<string | null>(null)
   const [scores, setScores] = useState<Record<string, number>>({})
-  const [declaringSet, setDeclaringSet] = useState(false)
+  // const [declaringSet, setDeclaringSet] = useState(false)
   const [setDeclaration, setSetDeclaration] = useState<Record<string, string[]>>({})
   const [teams, setTeams] = useState<Record<number, Player[]>>({})
   const { toast } = useToast()
   const [isSetModalOpen, setIsSetModalOpen] = useState(false)
   const [selectedSet, setSelectedSet] = useState<number | null>(null)
-  const [draggedCards, setDraggedCards] = useState<Record<string, string[]>>({})
+  // const [draggedCards, setDraggedCards] = useState<Record<string, string[]>>({})
   const [winningTeam, setWinningTeam] = useState<number | null>(null)
   const [showConfetti, setShowConfetti] = useState(false)
 
