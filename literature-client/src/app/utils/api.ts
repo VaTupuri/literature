@@ -2,7 +2,7 @@ import axios from 'axios';
 import { Player } from '@/app/types';
 
 
-export const API_BASE_URL = 'http://127.0.0.1:5000'; // Replace with your actual API base URL
+export const API_BASE_URL = 'http://10.183.76.168:5000'; // Replace with your actual API base URL
 
 export const createRoom = async (playerName: string) => {
   const response = await fetch(`${API_BASE_URL}/create_room`, {

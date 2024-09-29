@@ -11,8 +11,8 @@ from collections import defaultdict
 from itertools import combinations
 
 app = Flask(__name__)
-CORS(app)  # Add this line to enable CORS for all routes
-# app.config['SECRET_KEY'] = 'your-secret-key'
+CORS(app, resources={r"/*": {"origins": "*"}})
+
 socketio = SocketIO(app, cors_allowed_origins="*")
 
 # Database setup
@@ -502,4 +502,4 @@ def handle_declare_set(data):
     conn.close()
 
 if __name__ == '__main__':
-    socketio.run(app, debug=True)
+    socketio.run(app, host='0.0.0.0', port=5000, debug=True)
