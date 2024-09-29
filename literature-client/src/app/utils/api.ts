@@ -50,12 +50,13 @@ export const getRoomPlayers = async (roomId: string): Promise<Player[]> => {
   }
 };
 
-export const getCurrentTurn = async (roomId: string): Promise<{ current_turn: string | null, started: boolean }> => {
+export const getCurrentTurn = async (roomId: string): Promise<{ current_turn: string | null, started: boolean, scores: Record<string, number> }> => {
   try {
     const response = await axios.get(`${API_BASE_URL}/get_current_turn/${roomId}`);
     return {
       current_turn: response.data.current_turn || null,
-      started: response.data.started
+      started: response.data.started,
+      scores: response.data.scores || {}
     };
   } catch (error) {
     console.error('Error getting current turn:', error);

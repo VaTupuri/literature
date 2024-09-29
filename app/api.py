@@ -211,7 +211,7 @@ def get_current_turn(room_id):
     conn = get_db_connection()
     cur = conn.cursor(cursor_factory=RealDictCursor)
     
-    cur.execute("SELECT current_turn, additional_state FROM rooms WHERE id = %s", (room_id,))
+    cur.execute("SELECT current_turn, additional_state, scores FROM rooms WHERE id = %s", (room_id,))
     room = cur.fetchone()
     
     cur.close()
@@ -220,7 +220,8 @@ def get_current_turn(room_id):
     if room:
         return jsonify({
             "current_turn": room['current_turn'],
-            "started": room['additional_state'].get('started', False)
+            "started": room['additional_state'].get('started', False),
+            "scores": room['scores']
         })
     else:
         return jsonify({"error": "Room not found"}), 404
@@ -425,46 +426,77 @@ def handle_declare_set(data):
     
     declaring_player = next(p for p in players if str(p['id']) == declaring_player_id)
     declaring_team = declaring_player['team']
+    opposing_team = 1 if declaring_team == 0 else 0
     
-    # Validate the declaration
+    # Validate the declaration and find actual card owners
     is_valid = True
+    actual_card_owners = {}
     for player_id, cards in set_declaration.items():
         player = next(p for p in players if str(p['id']) == player_id)
         if player['team'] != declaring_team:
             is_valid = False
             break
-        if not validate_set_declaration(cards, json.loads(player['cards'])):
-            is_valid = False
-            break
+        player_cards = json.loads(player['cards'])
+        for card in cards:
+            if card in player_cards:
+                actual_card_owners[card] = player_id
+            else:
+                is_valid = False
+                # Find the actual owner of the card
+                for p in players:
+                    if card in json.loads(p['cards']):
+                        actual_card_owners[card] = str(p['id'])
+                        break
     
+    # Update scores
+    scores = room['scores']
     if is_valid:
-        # Update scores
-        scores = room['scores']
         scores[str(declaring_team)] = scores.get(str(declaring_team), 0) + 1
-        cur.execute("UPDATE rooms SET scores = %s WHERE id = %s", (Json(scores), room_id))
-        
-        # Remove declared cards from players' hands
-        for player_id, cards in set_declaration.items():
-            player = next(p for p in players if str(p['id']) == player_id)
-            player_cards = json.loads(player['cards'])
-            player_cards = [card for card in player_cards if card not in cards]
-            cur.execute("UPDATE players SET cards = %s WHERE id = %s", (json.dumps(player_cards), player_id))
-        
-        conn.commit()
-        
-        emit('set_declared', {
-            'declaring_player': declaring_player_id,
-            'set_declaration': set_declaration,
-            'scores': scores
-        }, room=room_id)
-        
-        # Update hands for all players involved
-        for player_id in set_declaration.keys():
-            cur.execute("SELECT cards FROM players WHERE id = %s", (player_id,))
-            updated_hand = cur.fetchone()['cards']
-            emit('hand_updated', {'hand': json.loads(updated_hand)}, room=player_id)
     else:
-        emit('error', {'message': 'Invalid set declaration'}, room=declaring_player_id)
+        scores[str(opposing_team)] = scores.get(str(opposing_team), 0) + 1
+    
+    # Check if a team has won
+    winning_team = None
+    if scores.get(str(declaring_team), 0) >= 5:
+        winning_team = declaring_team
+    elif scores.get(str(opposing_team), 0) >= 5:
+        winning_team = opposing_team
+
+    if winning_team is not None:
+        # Mark the game as ended
+        cur.execute("UPDATE rooms SET game_status = 'ended', additional_state = %s WHERE id = %s", 
+                    (Json({"started": False, "ended": True, "winning_team": winning_team}), room_id))
+    
+    cur.execute("UPDATE rooms SET scores = %s WHERE id = %s", (Json(scores), room_id))
+    
+    # Remove declared cards from players' hands and update database
+    affected_players = {}
+    for card, owner_id in actual_card_owners.items():
+        if owner_id not in affected_players:
+            affected_players[owner_id] = json.loads(next(p['cards'] for p in players if str(p['id']) == owner_id))
+        affected_players[owner_id].remove(card)
+    
+    for player_id, updated_hand in affected_players.items():
+        cur.execute("UPDATE players SET cards = %s WHERE id = %s", (json.dumps(updated_hand), player_id))
+    
+    conn.commit()
+    
+    emit('set_declared', {
+        'declaring_player': declaring_player_id,
+        'set_declaration': set_declaration,
+        'actual_card_owners': actual_card_owners,
+        'scores': scores,
+        'is_valid': is_valid,
+        'declaring_team': declaring_team,
+        'winning_team': winning_team
+    }, room=room_id)
+    
+    # Emit hand updates for all affected players
+    for player_id, updated_hand in affected_players.items():
+        emit('hand_updated', {
+            'player_id': player_id,
+            'hand': updated_hand
+        }, room=room_id)
     
     cur.close()
     conn.close()

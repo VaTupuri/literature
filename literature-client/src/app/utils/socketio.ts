@@ -33,10 +33,10 @@ export const connectToSocket = (roomId: string, playerId: string) => {
       // You can dispatch an action or update state here to reflect the game state
     });
 
-    socket.on('turn_changed', (data) => {
-      console.log('Turn changed:', data.current_turn);
-      // You can dispatch an action or update state here to reflect the new turn
-    });
+    // socket.on('turn_changed', (data) => {
+    //   console.log('Turn changed:', data.current_turn);
+    //   // You can dispatch an action or update state here to reflect the new turn
+    // });
 
     socket.on('card_transferred', (data) => {
       console.log('Card transferred:', data);
